@@ -10,6 +10,7 @@
     <packaging>pom</packaging>
     <modules>
         <module>kafka-basics</module>
+        <module>kafka-producer-wikimedia</module>
     </modules>
 
     <properties>
