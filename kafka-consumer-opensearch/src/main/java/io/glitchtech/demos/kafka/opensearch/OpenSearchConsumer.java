@@ -1,5 +1,6 @@
 package io.glitchtech.demos.kafka.opensearch;
 
+import com.google.gson.JsonParser;
 import org.apache.http.HttpHost;
 import org.apache.http.auth.AuthScope;
 import org.apache.http.auth.UsernamePasswordCredentials;
@@ -30,6 +31,15 @@ import java.util.Properties;
 
 public class OpenSearchConsumer {
 
+    private static String extractId(String json){
+        return JsonParser.parseString(json)
+                .getAsJsonObject()
+                .get("meta")
+                .getAsJsonObject()
+                .get("id")
+                .getAsString();
+    }
+
     public static void main(String[] args) throws IOException {
         Logger log = LoggerFactory.getLogger(OpenSearchConsumer.class.getSimpleName());
 
@@ -59,9 +69,16 @@ public class OpenSearchConsumer {
 
                 // send each record to OpenSearch
                 for (ConsumerRecord<String, String> record : consumerRecords) {
+                    // Unique id for record
+                    // Strategy 1 - use Kafka Record coordinates
+                    //String id = record.topic() + "_" + record.partition() + "_" + record.offset();
+
                     try{
+                        // Strategy 2 - use the id that is provided by the data
+                        String id = extractId(record.value());
                         IndexRequest indexRequest = new IndexRequest("wikimedia")
-                                .source(record.value(), XContentType.JSON);
+                                .source(record.value(), XContentType.JSON)
+                                .id(id);
                         IndexResponse indexResponse = openSearchClient.index(indexRequest, RequestOptions.DEFAULT);
                         log.info("Inserted document with id:" + indexResponse.getId() + " into OpenSearch");
                     } catch (Exception e) {
