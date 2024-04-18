@@ -11,6 +11,7 @@ import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.clients.consumer.ConsumerRecords;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
+import org.apache.kafka.common.errors.WakeupException;
 import org.apache.kafka.common.serialization.StringDeserializer;
 import org.opensearch.action.bulk.BulkRequest;
 import org.opensearch.action.bulk.BulkResponse;
@@ -108,6 +109,15 @@ public class OpenSearchConsumer {
                 }
             }
 
+        } catch (
+                WakeupException wakeupException) {
+            log.info("Consumer is starting to shut down");
+        } catch (Exception e) {
+            log.error("Unexpected exception in the consumer ->", e);
+        } finally {
+            kafkaConsumer.close();
+            openSearchClient.close();
+            log.info("Consumer is now gracefully shut down");
         }
     }
 
