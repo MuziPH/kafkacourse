@@ -12,8 +12,9 @@ import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.clients.consumer.ConsumerRecords;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
 import org.apache.kafka.common.serialization.StringDeserializer;
+import org.opensearch.action.bulk.BulkRequest;
+import org.opensearch.action.bulk.BulkResponse;
 import org.opensearch.action.index.IndexRequest;
-import org.opensearch.action.index.IndexResponse;
 import org.opensearch.client.RequestOptions;
 import org.opensearch.client.RestClient;
 import org.opensearch.client.RestHighLevelClient;
@@ -31,7 +32,7 @@ import java.util.Properties;
 
 public class OpenSearchConsumer {
 
-    private static String extractId(String json){
+    private static String extractId(String json) {
         return JsonParser.parseString(json)
                 .getAsJsonObject()
                 .get("meta")
@@ -67,23 +68,43 @@ public class OpenSearchConsumer {
                 int recordCount = consumerRecords.count();
                 log.info("Received " + recordCount + " records");
 
-                // send each record to OpenSearch
+                // Performance improvements with BulkRequest
+                BulkRequest bulkRequest = new BulkRequest();
+
+                // consume records by sending them to OpenSearch
                 for (ConsumerRecord<String, String> record : consumerRecords) {
                     // Unique id for record
                     // Strategy 1 - use Kafka Record coordinates
                     //String id = record.topic() + "_" + record.partition() + "_" + record.offset();
 
-                    try{
+                    try {
                         // Strategy 2 - use the id that is provided by the data
                         String id = extractId(record.value());
                         IndexRequest indexRequest = new IndexRequest("wikimedia")
                                 .source(record.value(), XContentType.JSON)
                                 .id(id);
-                        IndexResponse indexResponse = openSearchClient.index(indexRequest, RequestOptions.DEFAULT);
-                        log.info("Inserted document with id:" + indexResponse.getId() + " into OpenSearch");
+                        // adds each index to Open search - inefficient
+                        // IndexResponse indexResponse = openSearchClient.index(indexRequest, RequestOptions.DEFAULT);
+                        //log.info("Inserted document with id:" + indexResponse.getId() + " into OpenSearch");
+
+                        // fill up the bulk request
+                        bulkRequest.add(indexRequest);
                     } catch (Exception e) {
                     }
 
+                }
+                if (bulkRequest.numberOfActions() > 0) {
+                    BulkResponse bulkResponse = openSearchClient.bulk(bulkRequest, RequestOptions.DEFAULT);
+                    log.info("Inserted " + bulkResponse.getItems().length + " record(s)");
+
+                    try {
+                        Thread.sleep(1000);
+                    } catch (InterruptedException interruptedException) {
+                        interruptedException.printStackTrace();
+                    }
+                    // manually commit offsets after the batch is consumed
+                    kafkaConsumer.commitSync();
+                    log.info("Offsets have been committed!!");
                 }
             }
 
@@ -106,6 +127,8 @@ public class OpenSearchConsumer {
         properties.setProperty(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class.getName());
         properties.setProperty(ConsumerConfig.GROUP_ID_CONFIG, groupId);
         properties.setProperty(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "latest");
+        // Manual commit of messages
+        properties.setProperty(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, "false");
 
         // create a Consumer
         return new KafkaConsumer<>(properties);
